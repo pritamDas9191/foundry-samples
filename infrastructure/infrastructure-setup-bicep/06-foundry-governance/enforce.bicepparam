@@ -1,4 +1,4 @@
-// Enforce: block non-compliant agents, models and tools (Deny).
+// Enforce: block non-compliant agents, models, tools and hosted-agent egress (Deny).
 // Agent safety stays Audit — that policy doesn't support Deny.
 //
 // Start with audit-baseline.bicepparam, review compliance, then switch to this
@@ -10,6 +10,14 @@ using 'main.bicep'
 
 param assignmentPrefix = 'fg'
 param enforcementMode = 'Default'
+
+// Recommended for tool policies: assign at each Foundry resource instead of the
+// whole subscription (each assignment can evaluate only a limited number of
+// agents and toolboxes). Leave unset to assign at the subscription, or pass
+// resourceGroupName=<resource-group> on the command line.
+// param foundryResourceIds = [
+//   '/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<foundry-resource>'
+// ]
 
 param agents = {
   effect: 'Deny'
@@ -32,6 +40,10 @@ param models = {
   denyPreviewModels: true
 }
 
+// Evaluated when a toolbox or a prompt agent (Responses API, without the
+// Copilot harness) is saved. Use values from the tool type catalog in the
+// README. Don't add 'mcp' to approvedToolTypes: it approves every MCP server.
+// If agents call a toolbox over MCP, also approve the toolbox's MCP endpoint.
 param tools = {
   effect: 'Deny'
   approvedToolTypes: [
@@ -46,7 +58,7 @@ param tools = {
   ]
   deniedToolTypes: [
     'browser_automation'
-    'browser_automation_preview'
+    'computer_use'
   ]
 }
 
@@ -54,4 +66,21 @@ param safety = {
   enabled: true
   effect: 'Audit'
   filterName: 'Jailbreak'
+}
+
+// Hosted-agent egress: hosted agents must reference an RAI policy whose egress
+// section is Enforced, default Deny, and only permits traffic to these
+// destinations (host, host/path or host/path/*; no https://). The RAI policies
+// themselves are checked too (raiPolicyControls). Keep the Application Insights
+// entry if your hosted agents send telemetry; their RAI policy then allows the
+// exact regional ingestion host, for example eastus2-3.in.applicationinsights.azure.com.
+param egress = {
+  effect: 'Deny'
+  permittedDestinations: [
+    'api.contoso.com/public/*'
+    '*.in.applicationinsights.azure.com'
+  ]
+  deniedDestinations: [
+    'api.contoso.com/admin/*'
+  ]
 }

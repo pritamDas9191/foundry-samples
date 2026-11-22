@@ -6,9 +6,9 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "10448650762687324955"
+      "templateHash": "3712926507328457121"
     },
-    "description": "Assigns Microsoft Foundry built-in Azure Policy controls for agents, models, tools and agent safety at subscription or resource group scope."
+    "description": "Assigns Microsoft Foundry built-in Azure Policy controls for agents, models, tools, hosted-agent egress and agent safety at subscription, resource group or Foundry resource scope, individually or as one custom initiative."
   },
   "definitions": {
     "effect": {
@@ -143,7 +143,7 @@
           },
           "nullable": true,
           "metadata": {
-            "description": "Approved tool types, for example [\"web_search\", \"file_search\", \"code_interpreter\"]. Adding \"mcp\" approves every MCP server."
+            "description": "Approved tool types from the Foundry tool type catalog, for example [\"file_search\", \"code_interpreter\", \"web_search\"]. Adding \"mcp\" approves every MCP server."
           }
         },
         "approvedMcpEndpoints": {
@@ -153,7 +153,7 @@
           },
           "nullable": true,
           "metadata": {
-            "description": "Approved MCP server URLs. Case-insensitive; one \"*\" per value, for example \"https://learn.microsoft.com/api/mcp*\"."
+            "description": "Approved MCP server URLs or patterns, including toolbox MCP endpoints your agents call. Case-insensitive; at most one \"*\" per value, for example \"https://learn.microsoft.com/api/mcp*\"."
           }
         },
         "approvedMcpConnectors": {
@@ -173,7 +173,7 @@
           },
           "nullable": true,
           "metadata": {
-            "description": "Denied tool types, for example [\"browser_automation\", \"browser_automation_preview\"]."
+            "description": "Denied tool types, for example [\"browser_automation\", \"computer_use\"]."
           }
         },
         "deniedMcpEndpoints": {
@@ -198,7 +198,7 @@
         }
       },
       "metadata": {
-        "description": "Tool controls for agents and toolboxes."
+        "description": "Tool controls, evaluated when a toolbox or a prompt agent (Responses API, without the Copilot harness) is saved. Hosted agents are governed through the toolboxes they call."
       }
     },
     "safetyControls": {
@@ -248,6 +248,106 @@
       },
       "metadata": {
         "description": "Agent safety: audit that agents keep a required prompt content filter on. Audit-only."
+      }
+    },
+    "egressControls": {
+      "type": "object",
+      "properties": {
+        "effect": {
+          "$ref": "#/definitions/effect",
+          "nullable": true,
+          "metadata": {
+            "description": "Audit (default), Deny or Disabled. Applies to all egress policies. This is the Azure Policy effect, not the RAI egress mode: the policies always require the RAI egress mode to be Enforced."
+          }
+        },
+        "enabled": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Assign the egress policies. Default: true when permittedDestinations is set. Set true with an empty list to permit no traffic-permitting rules at all (an empty list never means unrestricted)."
+          }
+        },
+        "permittedDestinations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "maxLength": 100,
+          "metadata": {
+            "description": "Destinations that traffic-permitting egress rules may cover: host, host/path or host/path/*, for example [\"api.contoso.com/public/*\", \"*.contoso.com/public/*\"]. No schemes, ports, queries or fragments. Up to 100 entries."
+          }
+        },
+        "deniedDestinations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "maxLength": 100,
+          "metadata": {
+            "description": "Destinations excluded even if they fall inside a permitted one, for example [\"api.contoso.com/admin/*\"]. A permission never overrides a denial. Up to 100 entries."
+          }
+        },
+        "allowedActionTypes": {
+          "type": "array",
+          "allowedValues": [
+            "Allow",
+            "Deny",
+            "Rewrite",
+            "Transform"
+          ],
+          "nullable": true,
+          "metadata": {
+            "description": "Egress rule actions developers may use. Default: Allow, Deny, Transform, Rewrite."
+          }
+        },
+        "raiPolicyControls": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Also check the RAI policy resources themselves (baseline, header safety, rewrite targets) when they are created or updated. Default: true."
+          }
+        }
+      },
+      "metadata": {
+        "description": "Hosted-agent egress controls, plus the matching checks on the RAI policies that carry the egress rules."
+      }
+    },
+    "initiativeOptions": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Default: false (assign each policy separately)."
+          }
+        },
+        "name": {
+          "type": "string",
+          "nullable": true,
+          "metadata": {
+            "description": "Initiative (policy set definition) name. Default: <assignmentPrefix>-foundry-governance."
+          }
+        },
+        "displayName": {
+          "type": "string",
+          "nullable": true,
+          "metadata": {
+            "description": "Initiative display name. Default: \"Initiative: Foundry agents, models, tools and egress (<displayNamePrefix>)\"."
+          }
+        },
+        "assignIndividually": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Also assign every control individually, alongside the initiative. Default: false."
+          }
+        }
+      },
+      "metadata": {
+        "description": "Bundle the planned controls into one custom initiative (policy set) and assign that instead of individual policies. Agent-kind policies always stay direct assignments."
       }
     },
     "plannedAssignment": {
@@ -324,7 +424,7 @@
             "items": {
               "$ref": "#/definitions/plannedAssignment"
             },
-            "value": "[concat(if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAgentKinds'))), createArray(), createArray(createObject('key', 'agent-kinds-allow', 'displayName', 'Agents use only allowed agent kinds', 'policyDefinitionId', __bicep.builtIn('85455646-5d02-433e-a42d-265151140427'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedAgentKinds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAgentKinds'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedAgentKinds'))), createArray(), createArray(createObject('key', 'agent-kinds-deny', 'displayName', 'Agents do not use denied agent kinds', 'policyDefinitionId', __bicep.builtIn('b6ca2367-8597-4a3f-ab19-48f58d6d9278'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedAgentKinds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedAgentKinds'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedContainerImages'))), createArray(), createArray(createObject('key', 'agent-images-allow', 'displayName', 'Hosted agents use only allowed container images', 'policyDefinitionId', __bicep.builtIn('d0d9ac6c-628b-46c1-a177-eb22b12ce588'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedContainerImages', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedContainerImages'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedContainerImages'))), createArray(), createArray(createObject('key', 'agent-images-deny', 'displayName', 'Hosted agents do not use denied container images', 'policyDefinitionId', __bicep.builtIn('215c2c77-3afb-4f55-be2f-709b60dc8d53'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedContainerImages', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedContainerImages'))))))))]"
+            "value": "[concat(if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAgentKinds'))), createArray(), createArray(createObject('key', 'agent-kinds-allow', 'displayName', 'Agents: only allowed agent kinds', 'policyDefinitionId', __bicep.builtIn('85455646-5d02-433e-a42d-265151140427'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedAgentKinds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAgentKinds'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedAgentKinds'))), createArray(), createArray(createObject('key', 'agent-kinds-deny', 'displayName', 'Agents: no denied agent kinds', 'policyDefinitionId', __bicep.builtIn('b6ca2367-8597-4a3f-ab19-48f58d6d9278'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedAgentKinds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedAgentKinds'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedContainerImages'))), createArray(), createArray(createObject('key', 'agent-images-allow', 'displayName', 'Hosted agents: only allowed container images', 'policyDefinitionId', __bicep.builtIn('d0d9ac6c-628b-46c1-a177-eb22b12ce588'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedContainerImages', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedContainerImages'))))))), if(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedContainerImages'))), createArray(), createArray(createObject('key', 'agent-images-deny', 'displayName', 'Hosted agents: no denied container images', 'policyDefinitionId', __bicep.builtIn('215c2c77-3afb-4f55-be2f-709b60dc8d53'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedContainerImages', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedContainerImages'))))))))]"
           }
         },
         "modelAssignments": {
@@ -339,7 +439,7 @@
             "items": {
               "$ref": "#/definitions/plannedAssignment"
             },
-            "value": "[concat(if(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedPublishers'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAssetIds')))), createArray(), createArray(createObject('key', 'models-approved', 'displayName', 'Model deployments use only approved models', 'policyDefinitionId', __bicep.builtIn('aafe3651-cb78-4f68-9f81-e7e41509110f'), 'definitionVersion', '1.*.*', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedPublishers', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedPublishers'))), 'allowedAssetIds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAssetIds'))))))), if(and(not(coalesce(tryGet(parameters('c'), 'denyPreviewModels'), false())), not(coalesce(tryGet(parameters('c'), 'onlyAllowDirectFromAzure'), false()))), createArray(), createArray(createObject('key', 'models-eligibility', 'displayName', 'Model deployments meet eligibility requirements', 'policyDefinitionId', __bicep.builtIn('8791d062-ba96-4c34-b604-8538f7e30ca0'), 'definitionVersion', '1.*.*', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'denyPreviewModels', createObject('value', coalesce(tryGet(parameters('c'), 'denyPreviewModels'), false())), 'onlyAllowDirectFromAzure', createObject('value', coalesce(tryGet(parameters('c'), 'onlyAllowDirectFromAzure'), false())))))))]"
+            "value": "[concat(if(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedPublishers'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAssetIds')))), createArray(), createArray(createObject('key', 'models-approved', 'displayName', 'Models: only approved models', 'policyDefinitionId', __bicep.builtIn('aafe3651-cb78-4f68-9f81-e7e41509110f'), 'definitionVersion', '1.*.*', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'allowedPublishers', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedPublishers'))), 'allowedAssetIds', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'allowedAssetIds'))))))), if(and(not(coalesce(tryGet(parameters('c'), 'denyPreviewModels'), false())), not(coalesce(tryGet(parameters('c'), 'onlyAllowDirectFromAzure'), false()))), createArray(), createArray(createObject('key', 'models-eligibility', 'displayName', 'Models: meet eligibility (no preview, direct from Azure)', 'policyDefinitionId', __bicep.builtIn('8791d062-ba96-4c34-b604-8538f7e30ca0'), 'definitionVersion', '1.*.*', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'denyPreviewModels', createObject('value', coalesce(tryGet(parameters('c'), 'denyPreviewModels'), false())), 'onlyAllowDirectFromAzure', createObject('value', coalesce(tryGet(parameters('c'), 'onlyAllowDirectFromAzure'), false())))))))]"
           }
         },
         "toolAssignments": {
@@ -354,7 +454,7 @@
             "items": {
               "$ref": "#/definitions/plannedAssignment"
             },
-            "value": "[concat(if(and(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedToolTypes'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpEndpoints')))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpConnectors')))), createArray(), createArray(createObject('key', 'tools-approved', 'displayName', 'Agents and toolboxes use only approved tools', 'policyDefinitionId', __bicep.builtIn('e7352ad2-6c86-4a07-9573-47f67b557ba8'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'approvedToolTypes', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedToolTypes'))), 'approvedMcpEndpoints', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpEndpoints'))), 'approvedMcpConnectors', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpConnectors'))))))), if(and(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedToolTypes'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpEndpoints')))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpConnectors')))), createArray(), createArray(createObject('key', 'tools-denied', 'displayName', 'Agents and toolboxes do not use denied tools', 'policyDefinitionId', __bicep.builtIn('7740c22b-07ef-4bac-9f5a-e38d188f80b7'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedToolTypes', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedToolTypes'))), 'deniedMcpEndpoints', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpEndpoints'))), 'deniedMcpConnectors', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpConnectors'))))))))]"
+            "value": "[concat(if(and(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedToolTypes'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpEndpoints')))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpConnectors')))), createArray(), createArray(createObject('key', 'tools-approved', 'displayName', 'Tools: only approved tools and MCP servers', 'policyDefinitionId', __bicep.builtIn('e7352ad2-6c86-4a07-9573-47f67b557ba8'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'approvedToolTypes', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedToolTypes'))), 'approvedMcpEndpoints', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpEndpoints'))), 'approvedMcpConnectors', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'approvedMcpConnectors'))))))), if(and(and(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedToolTypes'))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpEndpoints')))), empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpConnectors')))), createArray(), createArray(createObject('key', 'tools-denied', 'displayName', 'Tools: no denied tools or MCP servers', 'policyDefinitionId', __bicep.builtIn('7740c22b-07ef-4bac-9f5a-e38d188f80b7'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'deniedToolTypes', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedToolTypes'))), 'deniedMcpEndpoints', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpEndpoints'))), 'deniedMcpConnectors', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedMcpConnectors'))))))))]"
           }
         },
         "safetyAssignments": {
@@ -369,7 +469,34 @@
             "items": {
               "$ref": "#/definitions/plannedAssignment"
             },
-            "value": "[if(not(coalesce(tryGet(parameters('c'), 'enabled'), false())), createArray(), createArray(createObject('key', 'agent-prompt-filter', 'displayName', format('Agents keep the {0} prompt filter on', coalesce(tryGet(parameters('c'), 'filterName'), 'Jailbreak')), 'policyDefinitionId', __bicep.builtIn('9224c1cc-34fc-44f1-ad08-5c4b079c9ce6'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'filterName', createObject('value', coalesce(tryGet(parameters('c'), 'filterName'), 'Jailbreak')), 'entityKind', createObject('value', coalesce(tryGet(parameters('c'), 'entityKinds'), createArray('prompt', 'hosted'))), 'allowedEnabledForPrompt', createObject('value', createArray('true')), 'allowedBlockingForPrompt', createObject('value', createArray('true'))))))]"
+            "value": "[if(not(coalesce(tryGet(parameters('c'), 'enabled'), false())), createArray(), createArray(createObject('key', 'agent-prompt-filter', 'displayName', format('Safety: agents keep the {0} prompt filter on', coalesce(tryGet(parameters('c'), 'filterName'), 'Jailbreak')), 'policyDefinitionId', __bicep.builtIn('9224c1cc-34fc-44f1-ad08-5c4b079c9ce6'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'filterName', createObject('value', coalesce(tryGet(parameters('c'), 'filterName'), 'Jailbreak')), 'entityKind', createObject('value', coalesce(tryGet(parameters('c'), 'entityKinds'), createArray('prompt', 'hosted'))), 'allowedEnabledForPrompt', createObject('value', createArray('true')), 'allowedBlockingForPrompt', createObject('value', createArray('true'))))))]"
+          }
+        },
+        "egressEnabled": {
+          "parameters": [
+            {
+              "$ref": "#/definitions/egressControls",
+              "name": "c"
+            }
+          ],
+          "output": {
+            "type": "bool",
+            "value": "[coalesce(tryGet(parameters('c'), 'enabled'), not(empty(__bicep.listOrEmpty(tryGet(parameters('c'), 'permittedDestinations')))))]"
+          }
+        },
+        "egressAssignments": {
+          "parameters": [
+            {
+              "$ref": "#/definitions/egressControls",
+              "name": "c"
+            }
+          ],
+          "output": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/plannedAssignment"
+            },
+            "value": "[if(not(__bicep.egressEnabled(parameters('c'))), createArray(), concat(createArray(createObject('key', 'agent-egress', 'displayName', 'Egress: hosted agents use an enforced RAI egress allow-list', 'policyDefinitionId', __bicep.builtIn('d279dbb1-e60e-4ca0-8c2f-cc7a0f46166b'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'permittedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'permittedDestinations'))), 'deniedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedDestinations'))), 'allowedActionTypes', createObject('value', coalesce(tryGet(parameters('c'), 'allowedActionTypes'), createArray('Allow', 'Deny', 'Transform', 'Rewrite')))))), if(not(coalesce(tryGet(parameters('c'), 'raiPolicyControls'), true())), createArray(), createArray(createObject('key', 'rai-egress-baseline', 'displayName', 'Egress: RAI policies meet the egress baseline', 'policyDefinitionId', __bicep.builtIn('0cfd954d-079f-447f-91bf-89889e9d1de0'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'permittedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'permittedDestinations'))), 'deniedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedDestinations'))), 'allowedActionTypes', createObject('value', coalesce(tryGet(parameters('c'), 'allowedActionTypes'), createArray('Allow', 'Deny', 'Transform', 'Rewrite'))))), createObject('key', 'rai-egress-headers', 'displayName', 'Egress: RAI policy headers use references and HTTPS', 'policyDefinitionId', __bicep.builtIn('29be091c-88f9-419b-8ad9-82ce5dc452d3'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')))), createObject('key', 'rai-egress-rewrites', 'displayName', 'Egress: RAI policy rewrites stay on permitted hosts', 'policyDefinitionId', __bicep.builtIn('64a15c51-9797-4d6b-93a5-16b19e7de23b'), 'definitionVersion', '1.*.*-preview', 'parameters', createObject('effect', createObject('value', coalesce(tryGet(parameters('c'), 'effect'), 'Audit')), 'permittedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'permittedDestinations'))), 'deniedDestinations', createObject('value', __bicep.listOrEmpty(tryGet(parameters('c'), 'deniedDestinations')))))))))]"
           }
         }
       }
@@ -380,7 +507,17 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Optional. Resource group in this subscription to scope the assignments to. Empty = whole subscription."
+        "description": "Optional. Resource group in this subscription to scope the assignments to. Empty = whole subscription. Ignored when foundryResourceIds is set."
+      }
+    },
+    "foundryResourceIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional. Full resource IDs of Foundry resources (Microsoft.CognitiveServices/accounts) in this subscription. When set, every control is assigned at each of these resources instead of the subscription or resource group. Recommended for tool policies: each assignment can evaluate only a limited number of agents and toolboxes."
       }
     },
     "assignmentPrefix": {
@@ -396,7 +533,7 @@
       "type": "string",
       "defaultValue": "Foundry governance",
       "metadata": {
-        "description": "Prefix for assignment display names. Foundry shows the display name when a request is blocked."
+        "description": "Label appended to assignment display names, for example \"Tools: only approved tools (Contoso)\". Display names lead with the area so they stay readable when Foundry truncates them."
       }
     },
     "enforcementMode": {
@@ -438,7 +575,7 @@
       "$ref": "#/definitions/toolControls",
       "defaultValue": {},
       "metadata": {
-        "description": "Tool controls for agents and toolboxes."
+        "description": "Tool controls for toolboxes and prompt agents."
       }
     },
     "safety": {
@@ -447,23 +584,37 @@
       "metadata": {
         "description": "Agent safety (audit-only) controls."
       }
+    },
+    "egress": {
+      "$ref": "#/definitions/egressControls",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Hosted-agent egress controls."
+      }
+    },
+    "initiative": {
+      "$ref": "#/definitions/initiativeOptions",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Assign everything as one custom initiative instead of separate policy assignments."
+      }
     }
   },
   "variables": {
     "copy": [
       {
-        "name": "assignmentDefinitions",
-        "count": "[length(variables('plan'))]",
+        "name": "individualAssignments",
+        "count": "[length(variables('directPlan'))]",
         "input": {
-          "name": "[format('{0}-{1}', parameters('assignmentPrefix'), variables('plan')[copyIndex('assignmentDefinitions')].key)]",
+          "name": "[format('{0}-{1}', parameters('assignmentPrefix'), variables('directPlan')[copyIndex('individualAssignments')].key)]",
           "properties": {
-            "displayName": "[format('{0}: {1}', parameters('displayNamePrefix'), variables('plan')[copyIndex('assignmentDefinitions')].displayName)]",
+            "displayName": "[format('{0} ({1})', variables('directPlan')[copyIndex('individualAssignments')].displayName, parameters('displayNamePrefix'))]",
             "description": "Assigned by the Microsoft Foundry governance template (06-foundry-governance).",
-            "policyDefinitionId": "[variables('plan')[copyIndex('assignmentDefinitions')].policyDefinitionId]",
-            "definitionVersion": "[variables('plan')[copyIndex('assignmentDefinitions')].definitionVersion]",
+            "policyDefinitionId": "[variables('directPlan')[copyIndex('individualAssignments')].policyDefinitionId]",
+            "definitionVersion": "[variables('directPlan')[copyIndex('individualAssignments')].definitionVersion]",
             "enforcementMode": "[parameters('enforcementMode')]",
             "notScopes": "[parameters('notScopes')]",
-            "parameters": "[variables('plan')[copyIndex('assignmentDefinitions')].parameters]",
+            "parameters": "[variables('directPlan')[copyIndex('individualAssignments')].parameters]",
             "metadata": {
               "source": "foundry-samples/06-foundry-governance"
             }
@@ -471,21 +622,63 @@
         }
       }
     ],
-    "plan": "[concat(__bicep.agentAssignments(parameters('agents')), __bicep.modelAssignments(parameters('models')), __bicep.toolAssignments(parameters('tools')), __bicep.safetyAssignments(parameters('safety')))]"
+    "plan": "[concat(__bicep.agentAssignments(parameters('agents')), __bicep.modelAssignments(parameters('models')), __bicep.toolAssignments(parameters('tools')), __bicep.safetyAssignments(parameters('safety')), __bicep.egressAssignments(parameters('egress')))]",
+    "directOnlyKeys": [
+      "agent-kinds-allow",
+      "agent-kinds-deny"
+    ],
+    "initiativeMembers": "[filter(variables('plan'), lambda('a', not(contains(variables('directOnlyKeys'), lambdaVariables('a').key))))]",
+    "useInitiative": "[and(coalesce(tryGet(parameters('initiative'), 'enabled'), false()), not(empty(variables('initiativeMembers'))))]",
+    "initiativeName": "[coalesce(tryGet(parameters('initiative'), 'name'), format('{0}-foundry-governance', parameters('assignmentPrefix')))]",
+    "directPlan": "[if(and(variables('useInitiative'), not(coalesce(tryGet(parameters('initiative'), 'assignIndividually'), false()))), filter(variables('plan'), lambda('a', contains(variables('directOnlyKeys'), lambdaVariables('a').key))), variables('plan'))]",
+    "initiativeDisplayName": "[coalesce(tryGet(parameters('initiative'), 'displayName'), format('Initiative: Foundry agents, models, tools and egress ({0})', parameters('displayNamePrefix')))]",
+    "initiativeAssignment": "[if(not(variables('useInitiative')), createArray(), createArray(createObject('name', variables('initiativeName'), 'properties', createObject('displayName', variables('initiativeDisplayName'), 'description', 'Assigned by the Microsoft Foundry governance template (06-foundry-governance).', 'policyDefinitionId', subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', variables('initiativeName')), 'enforcementMode', parameters('enforcementMode'), 'notScopes', parameters('notScopes'), 'metadata', createObject('source', 'foundry-samples/06-foundry-governance')))))]",
+    "assignmentDefinitions": "[concat(variables('individualAssignments'), variables('initiativeAssignment'))]",
+    "scopeKind": "[if(not(empty(parameters('foundryResourceIds'))), 'foundryResource', if(not(empty(parameters('resourceGroupName'))), 'resourceGroup', 'subscription'))]"
   },
   "resources": {
+    "governanceInitiative": {
+      "condition": "[variables('useInitiative')]",
+      "type": "Microsoft.Authorization/policySetDefinitions",
+      "apiVersion": "2025-03-01",
+      "name": "[variables('initiativeName')]",
+      "properties": {
+        "copy": [
+          {
+            "name": "policyDefinitions",
+            "count": "[length(variables('initiativeMembers'))]",
+            "input": {
+              "policyDefinitionReferenceId": "[variables('initiativeMembers')[copyIndex('policyDefinitions')].key]",
+              "policyDefinitionId": "[variables('initiativeMembers')[copyIndex('policyDefinitions')].policyDefinitionId]",
+              "definitionVersion": "[variables('initiativeMembers')[copyIndex('policyDefinitions')].definitionVersion]",
+              "parameters": "[variables('initiativeMembers')[copyIndex('policyDefinitions')].parameters]"
+            }
+          }
+        ],
+        "policyType": "Custom",
+        "displayName": "[variables('initiativeDisplayName')]",
+        "description": "Microsoft Foundry governance controls bundled by the 06-foundry-governance template.",
+        "metadata": {
+          "category": "Cognitive Services",
+          "source": "foundry-samples/06-foundry-governance"
+        }
+      }
+    },
     "subscriptionAssignments": {
       "copy": {
         "name": "subscriptionAssignments",
-        "count": "[length(if(empty(parameters('resourceGroupName')), variables('assignmentDefinitions'), createArray()))]"
+        "count": "[length(if(equals(variables('scopeKind'), 'subscription'), variables('assignmentDefinitions'), createArray()))]"
       },
       "type": "Microsoft.Authorization/policyAssignments",
       "apiVersion": "2024-04-01",
-      "name": "[if(empty(parameters('resourceGroupName')), variables('assignmentDefinitions'), createArray())[copyIndex()].name]",
-      "properties": "[if(empty(parameters('resourceGroupName')), variables('assignmentDefinitions'), createArray())[copyIndex()].properties]"
+      "name": "[if(equals(variables('scopeKind'), 'subscription'), variables('assignmentDefinitions'), createArray())[copyIndex()].name]",
+      "properties": "[if(equals(variables('scopeKind'), 'subscription'), variables('assignmentDefinitions'), createArray())[copyIndex()].properties]",
+      "dependsOn": [
+        "governanceInitiative"
+      ]
     },
     "resourceGroupAssignments": {
-      "condition": "[not(empty(parameters('resourceGroupName')))]",
+      "condition": "[equals(variables('scopeKind'), 'resourceGroup')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "[format('{0}-foundry-governance', parameters('assignmentPrefix'))]",
@@ -531,16 +724,112 @@
             }
           ]
         }
-      }
+      },
+      "dependsOn": [
+        "governanceInitiative"
+      ]
+    },
+    "foundryResourceAssignments": {
+      "copy": {
+        "name": "foundryResourceAssignments",
+        "count": "[length(parameters('foundryResourceIds'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('{0}-foundry-governance-{1}', parameters('assignmentPrefix'), copyIndex())]",
+      "subscriptionId": "[split(parameters('foundryResourceIds')[copyIndex()], '/')[2]]",
+      "resourceGroup": "[split(parameters('foundryResourceIds')[copyIndex()], '/')[4]]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "foundryResourceName": {
+            "value": "[last(split(parameters('foundryResourceIds')[copyIndex()], '/'))]"
+          },
+          "assignments": {
+            "value": "[variables('assignmentDefinitions')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "6060428087488474491"
+            }
+          },
+          "parameters": {
+            "foundryResourceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Foundry resource."
+              }
+            },
+            "assignments": {
+              "type": "array",
+              "metadata": {
+                "description": "Assignments to create: [{ name, properties }], built by main.bicep."
+              }
+            }
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "policyAssignments",
+                "count": "[length(parameters('assignments'))]"
+              },
+              "type": "Microsoft.Authorization/policyAssignments",
+              "apiVersion": "2024-04-01",
+              "scope": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('foundryResourceName'))]",
+              "name": "[parameters('assignments')[copyIndex()].name]",
+              "properties": "[parameters('assignments')[copyIndex()].properties]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "governanceInitiative"
+      ]
     }
   },
   "outputs": {
-    "scope": {
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "metadata": {
+        "description": "Scopes the policies were assigned to."
+      },
+      "value": "[if(equals(variables('scopeKind'), 'foundryResource'), parameters('foundryResourceIds'), createArray(if(equals(variables('scopeKind'), 'resourceGroup'), format('{0}/resourceGroups/{1}', subscription().id, parameters('resourceGroupName')), subscription().id)))]"
+    },
+    "initiativeId": {
       "type": "string",
       "metadata": {
-        "description": "Scope the policies were assigned to."
+        "description": "Custom initiative resource ID, when initiative.enabled is true."
       },
-      "value": "[if(empty(parameters('resourceGroupName')), subscription().id, format('{0}/resourceGroups/{1}', subscription().id, parameters('resourceGroupName')))]"
+      "value": "[if(variables('useInitiative'), subscriptionResourceId('Microsoft.Authorization/policySetDefinitions', variables('initiativeName')), '')]"
+    },
+    "directControls": {
+      "type": "array",
+      "metadata": {
+        "description": "Controls assigned directly."
+      },
+      "copy": {
+        "count": "[length(variables('directPlan'))]",
+        "input": "[variables('directPlan')[copyIndex()].key]"
+      }
+    },
+    "initiativeControls": {
+      "type": "array",
+      "metadata": {
+        "description": "Controls bundled in the initiative (empty when initiative.enabled is false)."
+      },
+      "value": "[if(variables('useInitiative'), map(variables('initiativeMembers'), lambda('a', lambdaVariables('a').key)), createArray())]"
     },
     "assignments": {
       "type": "array",
